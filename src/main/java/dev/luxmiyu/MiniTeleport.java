@@ -1,4 +1,4 @@
-package dev.luxmiyu.miniteleport;
+package dev.luxmiyu;
 
 import java.io.File;
 import java.io.FileReader;
@@ -32,7 +32,7 @@ import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -43,15 +43,16 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permissions;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Relative;
-import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -61,8 +62,7 @@ public class MiniTeleport implements ModInitializer {
     static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    static final Predicate<CommandSourceStack> PERMISSIONS_NORMAL = source -> source.hasPermission(0);
-    static final Predicate<CommandSourceStack> PERMISSIONS_ADMIN = source -> source.hasPermission(4);
+    static final Predicate<CommandSourceStack> PERMISSIONS_OWNER = source -> source.permissions().hasPermission(Permissions.COMMANDS_OWNER);
 
     static final long REQUEST_TIMEOUT_MS = 60_000; // 60 seconds
 
@@ -141,7 +141,7 @@ public class MiniTeleport implements ModInitializer {
     void setWarp(String name, ServerPlayer player, @Nullable UUID uuid) {
         MinecraftServer server = player.level().getServer();
         ArrayList<Warp> warps = new ArrayList<>(List.of(getWarps(getFile(server, uuid))));
-        String dimension = player.level().dimension().location().toString();
+        String dimension = player.level().dimension().identifier().toString();
         Warp warp = new Warp(name, (int) Math.floor(player.getX()), (int) Math.floor(player.getY()),
                 (int) Math.floor(player.getZ()), dimension);
 
@@ -175,16 +175,13 @@ public class MiniTeleport implements ModInitializer {
         String start = uuid == null ? "Warp '" : "Home '";
 
         if (delIndex == -1) {
-            player.displayClientMessage(
-                    Component.literal(start + name + "' does not exist!").withStyle(ChatFormatting.RED),
-                    false);
+            player.sendSystemMessage(Component.literal(start + name + "' does not exist!").withStyle(ChatFormatting.RED));
             return 0;
         } else {
             warps.remove(delIndex);
             CompletableFuture.runAsync(() -> writeFile(getFile(server, uuid), warps));
 
-            player.displayClientMessage(
-                    Component.literal(start + name + "' deleted!").withStyle(ChatFormatting.AQUA), false);
+            player.sendSystemMessage(Component.literal(start + name + "' deleted!").withStyle(ChatFormatting.AQUA));
             return 1;
         }
     }
@@ -214,14 +211,14 @@ public class MiniTeleport implements ModInitializer {
 
     int warpPlayer(ServerPlayer player, @Nullable Warp warp) {
         if (warp == null) {
-            player.displayClientMessage(Component.literal("That warp doesn't exist!").withStyle(ChatFormatting.RED), false);
+            player.sendSystemMessage(Component.literal("That warp doesn't exist!").withStyle(ChatFormatting.RED));
             return 0;
         }
 
         ServerLevel world = player.level().getServer()
-                .getLevel(ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(warp.dimension())));
+                .getLevel(ResourceKey.create(Registries.DIMENSION, Identifier.parse(warp.dimension())));
         if (world == null) {
-            player.displayClientMessage(Component.literal("That dimension doesn't exist!").withStyle(ChatFormatting.RED), false);
+            player.sendSystemMessage(Component.literal("That dimension doesn't exist!").withStyle(ChatFormatting.RED));
             return 0;
         }
 
@@ -233,15 +230,9 @@ public class MiniTeleport implements ModInitializer {
         doTeleportEffect(world, player);
 
         if (List.of("home", "back").contains(warp.name())) {
-            player.displayClientMessage(
-                    Component.literal(String.format("Teleported %s!", warp.name())).withStyle(ChatFormatting.AQUA),
-                    false
-            );
+            player.sendSystemMessage(Component.literal(String.format("Teleported %s!", warp.name())).withStyle(ChatFormatting.AQUA));
         } else {
-            player.displayClientMessage(
-                    Component.literal(String.format("Teleported to %s!", warp.name())).withStyle(ChatFormatting.AQUA),
-                    false
-            );
+            player.sendSystemMessage(Component.literal(String.format("Teleported to %s!", warp.name())).withStyle(ChatFormatting.AQUA));
         }
 
         return 1;
@@ -315,10 +306,8 @@ public class MiniTeleport implements ModInitializer {
                                 .withHoverEvent(new HoverEvent.ShowText(
                                         Component.literal("Deny teleport request from " + sender.getName().getString())))));
 
-        receiver.displayClientMessage(message, false);
-        sender.displayClientMessage(
-                Component.literal("Teleport request sent to " + receiver.getName().getString()).withStyle(ChatFormatting.AQUA),
-                false);
+        receiver.sendSystemMessage(message);
+        sender.sendSystemMessage(Component.literal("Teleport request sent to " + receiver.getName().getString()).withStyle(ChatFormatting.AQUA));
     }
 
     void cancelTeleportRequest(ServerPlayer sender) {
@@ -328,7 +317,7 @@ public class MiniTeleport implements ModInitializer {
                 = pendingRequests.stream().filter(r -> r.sender().equals(sender.getUUID())).toList();
 
         if (requests.isEmpty()) {
-            sender.displayClientMessage(Component.literal("You have no pending teleport requests.").withStyle(ChatFormatting.RED), false);
+            sender.sendSystemMessage(Component.literal("You have no pending teleport requests.").withStyle(ChatFormatting.RED));
             return;
         }
 
@@ -337,17 +326,13 @@ public class MiniTeleport implements ModInitializer {
                     = sender.level().getServer().getPlayerList().getPlayer(request.receiver());
 
             if (receiver != null) {
-                receiver.displayClientMessage(
-                        Component.literal(sender.getName().getString() + " cancelled their teleport request.")
-                                .withStyle(ChatFormatting.YELLOW),
-                        false
-                );
+                receiver.sendSystemMessage(Component.literal(sender.getName().getString() + " cancelled their teleport request.").withStyle(ChatFormatting.YELLOW));
             }
 
             removeRequest(request);
         }
 
-        sender.displayClientMessage(Component.literal("Teleport request cancelled.").withStyle(ChatFormatting.YELLOW), false);
+        sender.sendSystemMessage(Component.literal("Teleport request cancelled.").withStyle(ChatFormatting.YELLOW));
     }
 
     void acceptTeleportRequest(ServerPlayer receiver, @Nullable ServerPlayer sender) {
@@ -362,15 +347,14 @@ public class MiniTeleport implements ModInitializer {
         }
 
         if (request == null) {
-            receiver.displayClientMessage(Component.literal("Teleport request expired or doesn't exist.").withStyle(ChatFormatting.RED),
-                    false);
+            receiver.sendSystemMessage(Component.literal("Teleport request expired or doesn't exist.").withStyle(ChatFormatting.RED));
             return;
         }
 
         ServerPlayer actualSender
                 = receiver.level().getServer().getPlayerList().getPlayer(request.sender());
         if (actualSender == null) {
-            receiver.displayClientMessage(Component.literal("Request sender is no longer online.").withStyle(ChatFormatting.RED), false);
+            receiver.sendSystemMessage(Component.literal("Request sender is no longer online.").withStyle(ChatFormatting.RED));
             removeRequest(request);
             return;
         }
@@ -378,13 +362,13 @@ public class MiniTeleport implements ModInitializer {
         if (request.here()) {
             warpPlayer(receiver,
                     new Warp(actualSender.getName().getString(), (int) actualSender.getX(), (int) actualSender.getY(),
-                            (int) actualSender.getZ(), actualSender.level().dimension().location().toString()));
-            actualSender.displayClientMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA), false);
+                            (int) actualSender.getZ(), actualSender.level().dimension().identifier().toString()));
+            actualSender.sendSystemMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA));
         } else {
             warpPlayer(actualSender,
                     new Warp(receiver.getName().getString(), (int) receiver.getX(), (int) receiver.getY(),
-                            (int) receiver.getZ(), receiver.level().dimension().location().toString()));
-            receiver.displayClientMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA), false);
+                            (int) receiver.getZ(), receiver.level().dimension().identifier().toString()));
+            receiver.sendSystemMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA));
         }
 
         removeRequest(request);
@@ -402,15 +386,14 @@ public class MiniTeleport implements ModInitializer {
         }
 
         if (request == null) {
-            receiver.displayClientMessage(Component.literal("Teleport request expired or doesn't exist.").withStyle(ChatFormatting.RED),
-                    false);
+            receiver.sendSystemMessage(Component.literal("Teleport request expired or doesn't exist.").withStyle(ChatFormatting.RED));
             return;
         }
 
         ServerPlayer actualSender
                 = receiver.level().getServer().getPlayerList().getPlayer(request.sender());
         if (actualSender == null) {
-            receiver.displayClientMessage(Component.literal("Request sender is no longer online.").withStyle(ChatFormatting.RED), false);
+            receiver.sendSystemMessage(Component.literal("Request sender is no longer online.").withStyle(ChatFormatting.RED));
             removeRequest(request);
             return;
         }
@@ -466,7 +449,6 @@ public class MiniTeleport implements ModInitializer {
 
     void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("sethome")
-                .requires(PERMISSIONS_NORMAL)
                 .then(Commands.argument("name", StringArgumentType.word())
                         .executes(context -> {
                             ServerPlayer player = getPlayer(context.getSource());
@@ -474,21 +456,19 @@ public class MiniTeleport implements ModInitializer {
                             String homeName = StringArgumentType.getString(context, "name");
                             setWarp(homeName, player, player.getUUID());
 
-                            player.displayClientMessage(Component.literal(String.format("Home %s set!", homeName)).withStyle(ChatFormatting.AQUA),
-                                    false);
+                            player.sendSystemMessage(Component.literal(String.format("Home %s set!", homeName)).withStyle(ChatFormatting.AQUA));
                             return 1;
                         })
                 )
                 .executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
                     setWarp("home", player, player.getUUID());
-                    player.displayClientMessage(Component.literal("Home set!").withStyle(ChatFormatting.AQUA), false);
+                    player.sendSystemMessage(Component.literal("Home set!").withStyle(ChatFormatting.AQUA));
                     return 1;
                 })
         );
 
         dispatcher.register(Commands.literal("delhome")
-                .requires(PERMISSIONS_NORMAL)
                 .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(suggestWarps(true))
                         .executes(context -> {
@@ -505,7 +485,6 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("home")
-                .requires(PERMISSIONS_NORMAL)
                 .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(suggestWarps(true))
                         .executes(context -> {
@@ -521,16 +500,14 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("homes")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
-                    player.displayClientMessage(listWarps(getServer(context), player.getUUID()), false);
+                    player.sendSystemMessage(listWarps(getServer(context), player.getUUID()));
                     return 1;
                 })
         );
 
         dispatcher.register(Commands.literal("back")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
                     return warpPlayer(player, getWarp(getServer(context), "back", player.getUUID()));
@@ -538,21 +515,20 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("setwarp")
-                .requires(PERMISSIONS_ADMIN)
+                .requires(PERMISSIONS_OWNER)
                 .then(Commands.argument("name", StringArgumentType.word()).executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
 
                     String warpName = StringArgumentType.getString(context, "name");
                     setWarp(warpName, player, null);
 
-                    player.displayClientMessage(Component.literal(String.format("Warp %s set!", warpName)).withStyle(ChatFormatting.AQUA),
-                            false);
+                    player.sendSystemMessage(Component.literal(String.format("Warp %s set!", warpName)).withStyle(ChatFormatting.AQUA));
                     return 1;
                 }))
         );
 
         dispatcher.register(Commands.literal("delwarp")
-                .requires(PERMISSIONS_ADMIN)
+                .requires(PERMISSIONS_OWNER)
                 .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(suggestWarps(false))
                         .executes(context -> {
@@ -565,7 +541,6 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("warp")
-                .requires(PERMISSIONS_NORMAL)
                 .then(Commands.argument("name", StringArgumentType.word())
                         .suggests(suggestWarps(false))
                         .executes(context -> {
@@ -577,15 +552,14 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("warps")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
-                    player.displayClientMessage(listWarps(getServer(context), null), false);
+                    player.sendSystemMessage(listWarps(getServer(context), null));
                     return 1;
                 }));
 
         dispatcher.register(Commands.literal("setspawn")
-                .requires(PERMISSIONS_ADMIN)
+                .requires(PERMISSIONS_OWNER)
                 .executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
                     setWarp("spawn", player, null);
@@ -597,15 +571,14 @@ public class MiniTeleport implements ModInitializer {
                             0,
                             0
                     ));
-                    world.getServer().getGameRules().getRule(GameRules.RULE_SPAWN_RADIUS).set(0, world.getServer());
+                    world.getServer().getGameRules().set(GameRules.RESPAWN_RADIUS, 0, world.getServer());
 
-                    player.displayClientMessage(Component.literal("Spawn set!").withStyle(ChatFormatting.AQUA), false);
+                    player.sendSystemMessage(Component.literal("Spawn set!").withStyle(ChatFormatting.AQUA));
                     return 1;
                 })
         );
 
         dispatcher.register(Commands.literal("spawn")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer player = getPlayer(context.getSource());
                     return warpPlayer(player, getWarp(getServer(context), "spawn", null));
@@ -614,17 +587,13 @@ public class MiniTeleport implements ModInitializer {
 
         dispatcher.register(Commands.literal("tpa")
                 .then(Commands.argument("target", EntityArgument.player())
-                        .requires(PERMISSIONS_NORMAL)
                         .suggests(suggestPlayers())
                         .executes(context -> {
                             ServerPlayer sender = getPlayer(context.getSource());
                             ServerPlayer target = EntityArgument.getPlayer(context, "target");
 
                             if (sender.equals(target)) {
-                                sender.displayClientMessage(
-                                        Component.literal("You cannot teleport to yourself!").withStyle(ChatFormatting.RED),
-                                        false
-                                );
+                                sender.sendSystemMessage(Component.literal("You cannot teleport to yourself!").withStyle(ChatFormatting.RED));
                                 return 0;
                             }
 
@@ -636,17 +605,13 @@ public class MiniTeleport implements ModInitializer {
 
         dispatcher.register(Commands.literal("tpahere")
                 .then(Commands.argument("target", EntityArgument.player())
-                        .requires(PERMISSIONS_NORMAL)
                         .suggests(suggestPlayers())
                         .executes(context -> {
                             ServerPlayer sender = getPlayer(context.getSource());
                             ServerPlayer target = EntityArgument.getPlayer(context, "target");
 
                             if (sender.equals(target)) {
-                                sender.displayClientMessage(
-                                        Component.literal("You cannot teleport to yourself!").withStyle(ChatFormatting.RED),
-                                        false
-                                );
+                                sender.sendSystemMessage(Component.literal("You cannot teleport to yourself!").withStyle(ChatFormatting.RED));
                                 return 0;
                             }
 
@@ -657,7 +622,6 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("tpcancel")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer sender = getPlayer(context.getSource());
                     cancelTeleportRequest(sender);
@@ -666,7 +630,6 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("tpaccept")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer receiver = getPlayer(context.getSource());
                     acceptTeleportRequest(receiver, null);
@@ -684,7 +647,6 @@ public class MiniTeleport implements ModInitializer {
         );
 
         dispatcher.register(Commands.literal("tpdeny")
-                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
                     ServerPlayer receiver = getPlayer(context.getSource());
                     denyTeleportRequest(receiver, null);
@@ -715,7 +677,7 @@ public class MiniTeleport implements ModInitializer {
             }
         });
 
-        ServerWorldEvents.LOAD.register((server, world) -> createDir(server));
+        ServerLevelEvents.LOAD.register((server, world) -> createDir(server));
 
         LOGGER.info("Initialized!");
     }
