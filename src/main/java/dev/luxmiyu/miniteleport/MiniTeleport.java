@@ -1,44 +1,5 @@
 package dev.luxmiyu.miniteleport;
 
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
-import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-
-import net.minecraft.world.GameRules;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.WorldSavePath;
-import net.minecraft.world.WorldProperties;
-import net.minecraft.particle.ParticleTypes;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.text.Text;
-import net.minecraft.text.ClickEvent;
-import net.minecraft.text.HoverEvent;
-import net.minecraft.text.MutableText;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.command.argument.EntityArgumentType;
-import net.minecraft.network.packet.s2c.play.PositionFlag;
-
-import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.context.CommandContext;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.suggestion.SuggestionProvider;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -46,38 +7,77 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.List;
-import java.util.UUID;
-import java.util.EnumSet;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.function.Predicate;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+
+import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Relative;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.storage.LevelData;
+import net.minecraft.world.level.storage.LevelResource;
 
 public class MiniTeleport implements ModInitializer {
+
     static final String MOD_ID = "miniteleport";
     static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    static final Predicate<ServerCommandSource> PERMISSIONS_NORMAL = source -> source.hasPermissionLevel(0);
-    static final Predicate<ServerCommandSource> PERMISSIONS_ADMIN = source -> source.hasPermissionLevel(4);
+    static final Predicate<CommandSourceStack> PERMISSIONS_NORMAL = source -> source.hasPermission(0);
+    static final Predicate<CommandSourceStack> PERMISSIONS_ADMIN = source -> source.hasPermission(4);
 
     static final long REQUEST_TIMEOUT_MS = 60_000; // 60 seconds
 
     record Warp(String name, int x, int y, int z, String dimension) {
+
     }
 
     record TeleportRequest(UUID sender, UUID receiver, boolean here, long expiry) {
+
     }
 
     final List<TeleportRequest> pendingRequests = new CopyOnWriteArrayList<>();
 
     // ------ WARPS ----------------------------------------------------------------------------------------------
-
     Path getDir(MinecraftServer server) {
-        return server.getSavePath(WorldSavePath.ROOT).resolve(MOD_ID);
+        return server.getWorldPath(LevelResource.ROOT).resolve(MOD_ID);
     }
 
     File getFile(MinecraftServer server, @Nullable UUID uuid) {
@@ -95,7 +95,9 @@ public class MiniTeleport implements ModInitializer {
     }
 
     Warp[] getWarps(File file) {
-        if (!file.exists()) return new Warp[0];
+        if (!file.exists()) {
+            return new Warp[0];
+        }
 
         try (FileReader reader = new FileReader(file)) {
             return GSON.fromJson(reader, Warp[].class);
@@ -105,9 +107,12 @@ public class MiniTeleport implements ModInitializer {
         }
     }
 
-    @Nullable Warp getWarp(MinecraftServer server, String name, @Nullable UUID uuid) {
+    @Nullable
+    Warp getWarp(MinecraftServer server, String name, @Nullable UUID uuid) {
         for (Warp warp : getWarps(getFile(server, uuid))) {
-            if (warp.name().equals(name)) return warp;
+            if (warp.name().equals(name)) {
+                return warp;
+            }
         }
         return null;
     }
@@ -122,22 +127,22 @@ public class MiniTeleport implements ModInitializer {
             }
 
             Files.move(
-                tempFile,
-                file.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
+                    tempFile,
+                    file.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
             );
         } catch (IOException e) {
             LOGGER.error("Failed to save warps to {}", file, e);
         }
     }
 
-    void setWarp(String name, ServerPlayerEntity player, @Nullable UUID uuid) {
-        MinecraftServer server = player.getEntityWorld().getServer();
+    void setWarp(String name, ServerPlayer player, @Nullable UUID uuid) {
+        MinecraftServer server = player.level().getServer();
         ArrayList<Warp> warps = new ArrayList<>(List.of(getWarps(getFile(server, uuid))));
-        String dimension = player.getEntityWorld().getRegistryKey().getValue().toString();
+        String dimension = player.level().dimension().location().toString();
         Warp warp = new Warp(name, (int) Math.floor(player.getX()), (int) Math.floor(player.getY()),
-            (int) Math.floor(player.getZ()), dimension);
+                (int) Math.floor(player.getZ()), dimension);
 
         boolean warpExists = false;
         for (int i = 0; i < warps.size(); i++) {
@@ -154,8 +159,8 @@ public class MiniTeleport implements ModInitializer {
         CompletableFuture.runAsync(() -> writeFile(getFile(server, uuid), warps));
     }
 
-    int delWarp(String name, ServerPlayerEntity player, @Nullable UUID uuid) {
-        MinecraftServer server = player.getEntityWorld().getServer();
+    int delWarp(String name, ServerPlayer player, @Nullable UUID uuid) {
+        MinecraftServer server = player.level().getServer();
         ArrayList<Warp> warps = new ArrayList<>(List.of(getWarps(getFile(server, uuid))));
 
         int delIndex = -1;
@@ -169,100 +174,99 @@ public class MiniTeleport implements ModInitializer {
         String start = uuid == null ? "Warp '" : "Home '";
 
         if (delIndex == -1) {
-            player.sendMessage(
-                Text.literal(start + name + "' does not exist!").formatted(Formatting.RED),
-                false);
+            player.displayClientMessage(
+                    Component.literal(start + name + "' does not exist!").withStyle(ChatFormatting.RED),
+                    false);
             return 0;
         } else {
             warps.remove(delIndex);
             CompletableFuture.runAsync(() -> writeFile(getFile(server, uuid), warps));
 
-            player.sendMessage(
-                Text.literal(start + name + "' deleted!").formatted(Formatting.AQUA), false);
+            player.displayClientMessage(
+                    Component.literal(start + name + "' deleted!").withStyle(ChatFormatting.AQUA), false);
             return 1;
         }
     }
 
-    void doTeleportEffect(ServerWorld world, ServerPlayerEntity player) {
+    void doTeleportEffect(ServerLevel world, ServerPlayer player) {
         world.playSound(
-            null,
-            player.getBlockX() + 0.5,
-            player.getBlockY() + 0.5,
-            player.getBlockZ() + 0.5,
-            SoundEvents.ENTITY_ENDERMAN_TELEPORT,
-            SoundCategory.PLAYERS,
-            1.0f,
-            1.0f
+                null,
+                player.getBlockX() + 0.5,
+                player.getBlockY() + 0.5,
+                player.getBlockZ() + 0.5,
+                SoundEvents.ENDERMAN_TELEPORT,
+                SoundSource.PLAYERS,
+                1.0f,
+                1.0f
         );
 
-        world.spawnParticles(
-            ParticleTypes.PORTAL,
-            player.getBlockX() + 0.5,
-            player.getBlockY() + 0.5,
-            player.getBlockZ() + 0.5,
-            25,
-            0.25, 0.25, 0.25,
-            0.0
+        world.sendParticles(
+                ParticleTypes.PORTAL,
+                player.getBlockX() + 0.5,
+                player.getBlockY() + 0.5,
+                player.getBlockZ() + 0.5,
+                25,
+                0.25, 0.25, 0.25,
+                0.0
         );
     }
 
-    int warpPlayer(ServerPlayerEntity player, @Nullable Warp warp) {
+    int warpPlayer(ServerPlayer player, @Nullable Warp warp) {
         if (warp == null) {
-            player.sendMessage(Text.literal("That warp doesn't exist!").formatted(Formatting.RED), false);
+            player.displayClientMessage(Component.literal("That warp doesn't exist!").withStyle(ChatFormatting.RED), false);
             return 0;
         }
 
-        ServerWorld world = player.getEntityWorld().getServer()
-            .getWorld(RegistryKey.of(RegistryKeys.WORLD, Identifier.of(warp.dimension())));
+        ServerLevel world = player.level().getServer()
+                .getLevel(ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(warp.dimension())));
         if (world == null) {
-            player.sendMessage(Text.literal("That dimension doesn't exist!").formatted(Formatting.RED), false);
+            player.displayClientMessage(Component.literal("That dimension doesn't exist!").withStyle(ChatFormatting.RED), false);
             return 0;
         }
 
-        setWarp("back", player, player.getUuid());
+        setWarp("back", player, player.getUUID());
 
-        player.teleport(world, warp.x() + 0.5, warp.y() + 0.1, warp.z() + 0.5, EnumSet.noneOf(PositionFlag.class),
-            player.getYaw(), player.getPitch(), true);
+        player.teleportTo(world, warp.x() + 0.5, warp.y() + 0.1, warp.z() + 0.5, EnumSet.noneOf(Relative.class),
+                player.getYRot(), player.getXRot(), true);
 
         doTeleportEffect(world, player);
 
         if (List.of("home", "back").contains(warp.name())) {
-            player.sendMessage(
-                Text.literal(String.format("Teleported %s!", warp.name())).formatted(Formatting.AQUA),
-                false
+            player.displayClientMessage(
+                    Component.literal(String.format("Teleported %s!", warp.name())).withStyle(ChatFormatting.AQUA),
+                    false
             );
         } else {
-            player.sendMessage(
-                Text.literal(String.format("Teleported to %s!", warp.name())).formatted(Formatting.AQUA),
-                false
+            player.displayClientMessage(
+                    Component.literal(String.format("Teleported to %s!", warp.name())).withStyle(ChatFormatting.AQUA),
+                    false
             );
         }
 
         return 1;
     }
 
-    Text listWarps(MinecraftServer server, @Nullable UUID uuid) {
+    Component listWarps(MinecraftServer server, @Nullable UUID uuid) {
         Warp[] warps = getWarps(getFile(server, uuid));
 
         if (warps.length == 0) {
-            return Text.literal(uuid == null ? "There are no warps." : "You have no homes.").formatted(Formatting.RED);
+            return Component.literal(uuid == null ? "There are no warps." : "You have no homes.").withStyle(ChatFormatting.RED);
         }
 
-        MutableText text = Text.literal(uuid == null ? "Warps:" : "Homes:");
+        MutableComponent text = Component.literal(uuid == null ? "Warps:" : "Homes:");
         for (Warp warp : warps) {
             text
-                .append(Text.literal(" "))
-                .append(Text.literal(warp.name()).formatted(Formatting.GOLD).styled(style -> style
-                        .withClickEvent(new ClickEvent.RunCommand((uuid == null ? "/warp " : "/home ") + warp.name()))
-                        .withHoverEvent(new HoverEvent.ShowText(Text.literal("Teleport to " + warp.name())))
+                    .append(Component.literal(" "))
+                    .append(Component.literal(warp.name()).withStyle(ChatFormatting.GOLD).withStyle(style -> style
+                    .withClickEvent(new ClickEvent.RunCommand((uuid == null ? "/warp " : "/home ") + warp.name()))
+                    .withHoverEvent(new HoverEvent.ShowText(Component.literal("Teleport to " + warp.name())))
                     )
-                );
+                    );
         }
         return text;
     }
 
     // ------ REQUESTS -------------------------------------------------------------------------------------------
-
     void addRequest(TeleportRequest request) {
         // remove duplicate pairs
         pendingRequests.removeIf(r -> r.sender().equals(request.sender()) && r.receiver().equals(request.receiver()));
@@ -275,12 +279,12 @@ public class MiniTeleport implements ModInitializer {
 
     TeleportRequest getMostRecentRequest(UUID receiver) {
         return pendingRequests.stream().filter(r -> r.receiver().equals(receiver))
-            .max(Comparator.comparingLong(TeleportRequest::expiry)).orElse(null);
+                .max(Comparator.comparingLong(TeleportRequest::expiry)).orElse(null);
     }
 
     TeleportRequest getRequest(UUID receiver, UUID sender) {
         return pendingRequests.stream().filter(r -> r.receiver().equals(receiver) && r.sender().equals(sender))
-            .findFirst().orElse(null);
+                .findFirst().orElse(null);
     }
 
     void cleanupExpiredRequests() {
@@ -288,124 +292,123 @@ public class MiniTeleport implements ModInitializer {
         pendingRequests.removeIf(r -> r.expiry() < now);
     }
 
-    void sendTeleportRequest(ServerPlayerEntity sender, ServerPlayerEntity receiver, boolean here) {
+    void sendTeleportRequest(ServerPlayer sender, ServerPlayer receiver, boolean here) {
         cleanupExpiredRequests();
 
         long expiry = System.currentTimeMillis() + REQUEST_TIMEOUT_MS;
-        TeleportRequest request = new TeleportRequest(sender.getUuid(), receiver.getUuid(), here, expiry);
+        TeleportRequest request = new TeleportRequest(sender.getUUID(), receiver.getUUID(), here, expiry);
         addRequest(request);
 
-        Text message = Text.literal(
+        Component message = Component.literal(
                 String.format("%s wants to teleport %s. ", sender.getName().getString(), here ? "you to them" : "to you")
-            )
-            .formatted(Formatting.YELLOW).append(Text.literal("[Accept]").formatted(Formatting.GREEN).styled(
+        )
+                .withStyle(ChatFormatting.YELLOW).append(Component.literal("[Accept]").withStyle(ChatFormatting.GREEN).withStyle(
                 style -> style.withClickEvent(new ClickEvent.RunCommand("/tpaccept " + sender.getName().getString()))
-                    .withHoverEvent(new HoverEvent.ShowText(
-                        Text.literal("Accept teleport request from " + sender.getName().getString()))))
+                        .withHoverEvent(new HoverEvent.ShowText(
+                                Component.literal("Accept teleport request from " + sender.getName().getString()))))
+        )
+                .append(Component.literal(" "))
+                .append(Component.literal("[Deny]").withStyle(ChatFormatting.RED).withStyle(
+                        style -> style.withClickEvent(new ClickEvent.RunCommand("/tpdeny " + sender.getName().getString()))
+                                .withHoverEvent(new HoverEvent.ShowText(
+                                        Component.literal("Deny teleport request from " + sender.getName().getString())))));
 
-            )
-            .append(Text.literal(" "))
-            .append(Text.literal("[Deny]").formatted(Formatting.RED).styled(
-                style -> style.withClickEvent(new ClickEvent.RunCommand("/tpdeny " + sender.getName().getString()))
-                    .withHoverEvent(new HoverEvent.ShowText(
-                        Text.literal("Deny teleport request from " + sender.getName().getString())))));
-
-        receiver.sendMessage(message, false);
-        sender.sendMessage(
-            Text.literal("Teleport request sent to " + receiver.getName().getString()).formatted(Formatting.AQUA),
-            false);
+        receiver.displayClientMessage(message, false);
+        sender.displayClientMessage(
+                Component.literal("Teleport request sent to " + receiver.getName().getString()).withStyle(ChatFormatting.AQUA),
+                false);
     }
 
-    void cancelTeleportRequest(ServerPlayerEntity sender) {
+    void cancelTeleportRequest(ServerPlayer sender) {
         cleanupExpiredRequests();
 
-        List<TeleportRequest> requests =
-            pendingRequests.stream().filter(r -> r.sender().equals(sender.getUuid())).toList();
+        List<TeleportRequest> requests
+                = pendingRequests.stream().filter(r -> r.sender().equals(sender.getUUID())).toList();
 
         if (requests.isEmpty()) {
-            sender.sendMessage(Text.literal("You have no pending teleport requests.").formatted(Formatting.RED), false);
+            sender.displayClientMessage(Component.literal("You have no pending teleport requests.").withStyle(ChatFormatting.RED), false);
             return;
         }
 
         for (TeleportRequest request : requests) {
-            ServerPlayerEntity receiver =
-                sender.getEntityWorld().getServer().getPlayerManager().getPlayer(request.receiver());
+            ServerPlayer receiver
+                    = sender.level().getServer().getPlayerList().getPlayer(request.receiver());
 
             if (receiver != null) {
-                receiver.sendMessage(
-                    Text.literal(sender.getName().getString() + " cancelled their teleport request.")
-                        .formatted(Formatting.YELLOW),
-                    false
+                receiver.displayClientMessage(
+                        Component.literal(sender.getName().getString() + " cancelled their teleport request.")
+                                .withStyle(ChatFormatting.YELLOW),
+                        false
                 );
             }
 
             removeRequest(request);
         }
 
-        sender.sendMessage(Text.literal("Teleport request cancelled.").formatted(Formatting.YELLOW), false);
+        sender.displayClientMessage(Component.literal("Teleport request cancelled.").withStyle(ChatFormatting.YELLOW), false);
     }
 
-    void acceptTeleportRequest(ServerPlayerEntity receiver, @Nullable ServerPlayerEntity sender) {
+    void acceptTeleportRequest(ServerPlayer receiver, @Nullable ServerPlayer sender) {
         cleanupExpiredRequests();
 
         TeleportRequest request;
 
         if (sender != null) {
-            request = getRequest(receiver.getUuid(), sender.getUuid());
+            request = getRequest(receiver.getUUID(), sender.getUUID());
         } else {
-            request = getMostRecentRequest(receiver.getUuid());
+            request = getMostRecentRequest(receiver.getUUID());
         }
 
         if (request == null) {
-            receiver.sendMessage(Text.literal("Teleport request expired or doesn't exist.").formatted(Formatting.RED),
-                false);
+            receiver.displayClientMessage(Component.literal("Teleport request expired or doesn't exist.").withStyle(ChatFormatting.RED),
+                    false);
             return;
         }
 
-        ServerPlayerEntity actualSender =
-            receiver.getEntityWorld().getServer().getPlayerManager().getPlayer(request.sender());
+        ServerPlayer actualSender
+                = receiver.level().getServer().getPlayerList().getPlayer(request.sender());
         if (actualSender == null) {
-            receiver.sendMessage(Text.literal("Request sender is no longer online.").formatted(Formatting.RED), false);
+            receiver.displayClientMessage(Component.literal("Request sender is no longer online.").withStyle(ChatFormatting.RED), false);
             removeRequest(request);
             return;
         }
 
         if (request.here()) {
             warpPlayer(receiver,
-                new Warp(actualSender.getName().getString(), (int) actualSender.getX(), (int) actualSender.getY(),
-                    (int) actualSender.getZ(), actualSender.getEntityWorld().getRegistryKey().getValue().toString()));
-            actualSender.sendMessage(Text.literal("Teleport request accepted!").formatted(Formatting.AQUA), false);
+                    new Warp(actualSender.getName().getString(), (int) actualSender.getX(), (int) actualSender.getY(),
+                            (int) actualSender.getZ(), actualSender.level().dimension().location().toString()));
+            actualSender.displayClientMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA), false);
         } else {
             warpPlayer(actualSender,
-                new Warp(receiver.getName().getString(), (int) receiver.getX(), (int) receiver.getY(),
-                    (int) receiver.getZ(), receiver.getEntityWorld().getRegistryKey().getValue().toString()));
-            receiver.sendMessage(Text.literal("Teleport request accepted!").formatted(Formatting.AQUA), false);
+                    new Warp(receiver.getName().getString(), (int) receiver.getX(), (int) receiver.getY(),
+                            (int) receiver.getZ(), receiver.level().dimension().location().toString()));
+            receiver.displayClientMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA), false);
         }
 
         removeRequest(request);
     }
 
-    void denyTeleportRequest(ServerPlayerEntity receiver, @Nullable ServerPlayerEntity sender) {
+    void denyTeleportRequest(ServerPlayer receiver, @Nullable ServerPlayer sender) {
         cleanupExpiredRequests();
 
         TeleportRequest request;
 
         if (sender != null) {
-            request = getRequest(receiver.getUuid(), sender.getUuid());
+            request = getRequest(receiver.getUUID(), sender.getUUID());
         } else {
-            request = getMostRecentRequest(receiver.getUuid());
+            request = getMostRecentRequest(receiver.getUUID());
         }
 
         if (request == null) {
-            receiver.sendMessage(Text.literal("Teleport request expired or doesn't exist.").formatted(Formatting.RED),
-                false);
+            receiver.displayClientMessage(Component.literal("Teleport request expired or doesn't exist.").withStyle(ChatFormatting.RED),
+                    false);
             return;
         }
 
-        ServerPlayerEntity actualSender =
-            receiver.getEntityWorld().getServer().getPlayerManager().getPlayer(request.sender());
+        ServerPlayer actualSender
+                = receiver.level().getServer().getPlayerList().getPlayer(request.sender());
         if (actualSender == null) {
-            receiver.sendMessage(Text.literal("Request sender is no longer online.").formatted(Formatting.RED), false);
+            receiver.displayClientMessage(Component.literal("Request sender is no longer online.").withStyle(ChatFormatting.RED), false);
             removeRequest(request);
             return;
         }
@@ -414,26 +417,27 @@ public class MiniTeleport implements ModInitializer {
     }
 
     // ------ COMMANDS ----------------------------------------------------------------------------------------
-
-    MinecraftServer getServer(CommandContext<ServerCommandSource> context) {
+    MinecraftServer getServer(CommandContext<CommandSourceStack> context) {
         return context.getSource().getServer();
     }
 
-    ServerPlayerEntity getPlayer(ServerCommandSource source) throws CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayer();
+    ServerPlayer getPlayer(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayer();
         if (player == null) {
-            source.sendError(Text.literal("You must be a player to use this command."));
+            source.sendFailure(Component.literal("You must be a player to use this command."));
             throw CommandSyntaxException.BUILT_IN_EXCEPTIONS.dispatcherUnknownCommand().create();
         }
         return player;
     }
 
-    SuggestionProvider<ServerCommandSource> suggestWarps(boolean player) {
+    SuggestionProvider<CommandSourceStack> suggestWarps(boolean player) {
         return (context, builder) -> {
-            MinecraftServer server = getPlayer(context.getSource()).getEntityWorld().getServer();
+            MinecraftServer server = getPlayer(context.getSource()).level().getServer();
             UUID uuid = null;
 
-            if (player) uuid = getPlayer(context.getSource()).getUuid();
+            if (player) {
+                uuid = getPlayer(context.getSource()).getUUID();
+            }
 
             for (Warp warp : getWarps(getFile(server, uuid))) {
                 builder.suggest(warp.name());
@@ -442,14 +446,14 @@ public class MiniTeleport implements ModInitializer {
         };
     }
 
-    SuggestionProvider<ServerCommandSource> suggestPlayers() {
+    SuggestionProvider<CommandSourceStack> suggestPlayers() {
         return (context, builder) -> {
-            ServerPlayerEntity sender = getPlayer(context.getSource());
+            ServerPlayer sender = getPlayer(context.getSource());
 
-            List<ServerPlayerEntity> players = sender.getEntityWorld().getServer().getPlayerManager().getPlayerList();
+            List<ServerPlayer> players = sender.level().getServer().getPlayerList().getPlayers();
 
-            for (ServerPlayerEntity player : players) {
-                if (!sender.getUuid().equals(player.getUuid())) {
+            for (ServerPlayer player : players) {
+                if (!sender.getUUID().equals(player.getUUID())) {
                     builder.suggest(player.getName().getString());
                 }
             }
@@ -458,255 +462,254 @@ public class MiniTeleport implements ModInitializer {
         };
     }
 
-    void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher) {
-        dispatcher.register(CommandManager.literal("sethome")
-            .requires(PERMISSIONS_NORMAL)
-            .then(CommandManager.argument("name", StringArgumentType.word())
+    void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(Commands.literal("sethome")
+                .requires(PERMISSIONS_NORMAL)
+                .then(Commands.argument("name", StringArgumentType.word())
+                        .executes(context -> {
+                            ServerPlayer player = getPlayer(context.getSource());
+
+                            String homeName = StringArgumentType.getString(context, "name");
+                            setWarp(homeName, player, player.getUUID());
+
+                            player.displayClientMessage(Component.literal(String.format("Home %s set!", homeName)).withStyle(ChatFormatting.AQUA),
+                                    false);
+                            return 1;
+                        })
+                )
                 .executes(context -> {
-                    ServerPlayerEntity player = getPlayer(context.getSource());
-
-                    String homeName = StringArgumentType.getString(context, "name");
-                    setWarp(homeName, player, player.getUuid());
-
-                    player.sendMessage(Text.literal(String.format("Home %s set!", homeName)).formatted(Formatting.AQUA),
-                        false);
+                    ServerPlayer player = getPlayer(context.getSource());
+                    setWarp("home", player, player.getUUID());
+                    player.displayClientMessage(Component.literal("Home set!").withStyle(ChatFormatting.AQUA), false);
                     return 1;
                 })
-            )
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                setWarp("home", player, player.getUuid());
-                player.sendMessage(Text.literal("Home set!").formatted(Formatting.AQUA), false);
-                return 1;
-            })
         );
 
-        dispatcher.register(CommandManager.literal("delhome")
-            .requires(PERMISSIONS_NORMAL)
-            .then(CommandManager.argument("name", StringArgumentType.word())
-                .suggests(suggestWarps(true))
-                .executes(context -> {
-                    ServerPlayerEntity player = getPlayer(context.getSource());
+        dispatcher.register(Commands.literal("delhome")
+                .requires(PERMISSIONS_NORMAL)
+                .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(suggestWarps(true))
+                        .executes(context -> {
+                            ServerPlayer player = getPlayer(context.getSource());
 
-                    String homeName = StringArgumentType.getString(context, "name");
-                    return delWarp(homeName, player, player.getUuid());
+                            String homeName = StringArgumentType.getString(context, "name");
+                            return delWarp(homeName, player, player.getUUID());
+                        })
+                )
+                .executes(context -> {
+                    ServerPlayer player = getPlayer(context.getSource());
+                    return delWarp("home", player, player.getUUID());
                 })
-            )
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                return delWarp("home", player, player.getUuid());
-            })
         );
 
-        dispatcher.register(CommandManager.literal("home")
-            .requires(PERMISSIONS_NORMAL)
-            .then(CommandManager.argument("name", StringArgumentType.word())
-                .suggests(suggestWarps(true))
-                .executes(context -> {
-                    ServerPlayerEntity player = getPlayer(context.getSource());
-                    String homeName = StringArgumentType.getString(context, "name");
-                    return warpPlayer(player, getWarp(getServer(context), homeName, player.getUuid()));
+        dispatcher.register(Commands.literal("home")
+                .requires(PERMISSIONS_NORMAL)
+                .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(suggestWarps(true))
+                        .executes(context -> {
+                            ServerPlayer player = getPlayer(context.getSource());
+                            String homeName = StringArgumentType.getString(context, "name");
+                            return warpPlayer(player, getWarp(getServer(context), homeName, player.getUUID()));
+                        })
+                ).executes(context -> {
+                    ServerPlayer player = getPlayer(context.getSource());
+
+                    return warpPlayer(player, getWarp(getServer(context), "home", player.getUUID()));
                 })
-            ).executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-
-                return warpPlayer(player, getWarp(getServer(context), "home", player.getUuid()));
-            })
         );
 
-        dispatcher.register(CommandManager.literal("homes")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                player.sendMessage(listWarps(getServer(context), player.getUuid()), false);
-                return 1;
-            })
-        );
-
-        dispatcher.register(CommandManager.literal("back")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                return warpPlayer(player, getWarp(getServer(context), "back", player.getUuid()));
-            })
-        );
-
-        dispatcher.register(CommandManager.literal("setwarp")
-            .requires(PERMISSIONS_ADMIN)
-            .then(CommandManager.argument("name", StringArgumentType.word()).executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-
-                String warpName = StringArgumentType.getString(context, "name");
-                setWarp(warpName, player, null);
-
-                player.sendMessage(Text.literal(String.format("Warp %s set!", warpName)).formatted(Formatting.AQUA),
-                    false);
-                return 1;
-            }))
-        );
-
-        dispatcher.register(CommandManager.literal("delwarp")
-            .requires(PERMISSIONS_ADMIN)
-            .then(CommandManager.argument("name", StringArgumentType.word())
-                .suggests(suggestWarps(false))
+        dispatcher.register(Commands.literal("homes")
+                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
-                    ServerPlayerEntity player = getPlayer(context.getSource());
+                    ServerPlayer player = getPlayer(context.getSource());
+                    player.displayClientMessage(listWarps(getServer(context), player.getUUID()), false);
+                    return 1;
+                })
+        );
+
+        dispatcher.register(Commands.literal("back")
+                .requires(PERMISSIONS_NORMAL)
+                .executes(context -> {
+                    ServerPlayer player = getPlayer(context.getSource());
+                    return warpPlayer(player, getWarp(getServer(context), "back", player.getUUID()));
+                })
+        );
+
+        dispatcher.register(Commands.literal("setwarp")
+                .requires(PERMISSIONS_ADMIN)
+                .then(Commands.argument("name", StringArgumentType.word()).executes(context -> {
+                    ServerPlayer player = getPlayer(context.getSource());
 
                     String warpName = StringArgumentType.getString(context, "name");
-                    return delWarp(warpName, player, null);
-                })
-            )
+                    setWarp(warpName, player, null);
+
+                    player.displayClientMessage(Component.literal(String.format("Warp %s set!", warpName)).withStyle(ChatFormatting.AQUA),
+                            false);
+                    return 1;
+                }))
         );
 
-        dispatcher.register(CommandManager.literal("warp")
-            .requires(PERMISSIONS_NORMAL)
-            .then(CommandManager.argument("name", StringArgumentType.word())
-                .suggests(suggestWarps(false))
-                .executes(context -> {
-                    ServerPlayerEntity player = getPlayer(context.getSource());
-                    String warpName = StringArgumentType.getString(context, "name");
-                    return warpPlayer(player, getWarp(getServer(context), warpName, null));
-                })
-            )
+        dispatcher.register(Commands.literal("delwarp")
+                .requires(PERMISSIONS_ADMIN)
+                .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(suggestWarps(false))
+                        .executes(context -> {
+                            ServerPlayer player = getPlayer(context.getSource());
+
+                            String warpName = StringArgumentType.getString(context, "name");
+                            return delWarp(warpName, player, null);
+                        })
+                )
         );
 
-        dispatcher.register(CommandManager.literal("warps")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                player.sendMessage(listWarps(getServer(context), null), false);
-                return 1;
-            }));
-
-        dispatcher.register(CommandManager.literal("setspawn")
-            .requires(PERMISSIONS_ADMIN)
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                setWarp("spawn", player, null);
-
-                ServerWorld world = player.getEntityWorld();
-                world.setSpawnPoint(WorldProperties.SpawnPoint.create(
-                    player.getEntityWorld().getRegistryKey(),
-                    player.getBlockPos(),
-                    0,
-                    0
-                ));
-                world.getServer().getGameRules().get(GameRules.SPAWN_RADIUS).set(0, world.getServer());
-
-                player.sendMessage(Text.literal("Spawn set!").formatted(Formatting.AQUA), false);
-                return 1;
-            })
-        );
-
-        dispatcher.register(CommandManager.literal("spawn")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity player = getPlayer(context.getSource());
-                return warpPlayer(player, getWarp(getServer(context), "spawn", null));
-            })
-        );
-
-        dispatcher.register(CommandManager.literal("tpa")
-            .then(CommandManager.argument("target", EntityArgumentType.player())
+        dispatcher.register(Commands.literal("warp")
                 .requires(PERMISSIONS_NORMAL)
-                .suggests(suggestPlayers())
-                .executes(context -> {
-                    ServerPlayerEntity sender = getPlayer(context.getSource());
-                    ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "target");
-
-                    if (sender.equals(target)) {
-                        sender.sendMessage(
-                            Text.literal("You cannot teleport to yourself!").formatted(Formatting.RED),
-                            false
-                        );
-                        return 0;
-                    }
-
-                    sendTeleportRequest(sender, target, false);
-                    return 1;
-                })
-            )
+                .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests(suggestWarps(false))
+                        .executes(context -> {
+                            ServerPlayer player = getPlayer(context.getSource());
+                            String warpName = StringArgumentType.getString(context, "name");
+                            return warpPlayer(player, getWarp(getServer(context), warpName, null));
+                        })
+                )
         );
 
-        dispatcher.register(CommandManager.literal("tpahere")
-            .then(CommandManager.argument("target", EntityArgumentType.player())
+        dispatcher.register(Commands.literal("warps")
                 .requires(PERMISSIONS_NORMAL)
-                .suggests(suggestPlayers())
                 .executes(context -> {
-                    ServerPlayerEntity sender = getPlayer(context.getSource());
-                    ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "target");
+                    ServerPlayer player = getPlayer(context.getSource());
+                    player.displayClientMessage(listWarps(getServer(context), null), false);
+                    return 1;
+                }));
 
-                    if (sender.equals(target)) {
-                        sender.sendMessage(
-                            Text.literal("You cannot teleport to yourself!").formatted(Formatting.RED),
-                            false
-                        );
-                        return 0;
-                    }
+        dispatcher.register(Commands.literal("setspawn")
+                .requires(PERMISSIONS_ADMIN)
+                .executes(context -> {
+                    ServerPlayer player = getPlayer(context.getSource());
+                    setWarp("spawn", player, null);
 
-                    sendTeleportRequest(sender, target, true);
+                    ServerLevel world = player.level();
+                    world.setRespawnData(LevelData.RespawnData.of(
+                            player.level().dimension(),
+                            player.blockPosition(),
+                            0,
+                            0
+                    ));
+                    world.getServer().getGameRules().getRule(GameRules.RULE_SPAWN_RADIUS).set(0, world.getServer());
+
+                    player.displayClientMessage(Component.literal("Spawn set!").withStyle(ChatFormatting.AQUA), false);
                     return 1;
                 })
-            )
         );
 
-        dispatcher.register(CommandManager.literal("tpcancel")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity sender = getPlayer(context.getSource());
-                cancelTeleportRequest(sender);
-                return 1;
-            })
-        );
-
-        dispatcher.register(CommandManager.literal("tpaccept")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity receiver = getPlayer(context.getSource());
-                acceptTeleportRequest(receiver, null);
-                return 1;
-            })
-            .then(CommandManager.argument("sender", EntityArgumentType.player())
-                .suggests(suggestPlayers())
+        dispatcher.register(Commands.literal("spawn")
+                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
-                    ServerPlayerEntity receiver = getPlayer(context.getSource());
-                    ServerPlayerEntity sender = EntityArgumentType.getPlayer(context, "sender");
-                    acceptTeleportRequest(receiver, sender);
+                    ServerPlayer player = getPlayer(context.getSource());
+                    return warpPlayer(player, getWarp(getServer(context), "spawn", null));
+                })
+        );
+
+        dispatcher.register(Commands.literal("tpa")
+                .then(Commands.argument("target", EntityArgument.player())
+                        .requires(PERMISSIONS_NORMAL)
+                        .suggests(suggestPlayers())
+                        .executes(context -> {
+                            ServerPlayer sender = getPlayer(context.getSource());
+                            ServerPlayer target = EntityArgument.getPlayer(context, "target");
+
+                            if (sender.equals(target)) {
+                                sender.displayClientMessage(
+                                        Component.literal("You cannot teleport to yourself!").withStyle(ChatFormatting.RED),
+                                        false
+                                );
+                                return 0;
+                            }
+
+                            sendTeleportRequest(sender, target, false);
+                            return 1;
+                        })
+                )
+        );
+
+        dispatcher.register(Commands.literal("tpahere")
+                .then(Commands.argument("target", EntityArgument.player())
+                        .requires(PERMISSIONS_NORMAL)
+                        .suggests(suggestPlayers())
+                        .executes(context -> {
+                            ServerPlayer sender = getPlayer(context.getSource());
+                            ServerPlayer target = EntityArgument.getPlayer(context, "target");
+
+                            if (sender.equals(target)) {
+                                sender.displayClientMessage(
+                                        Component.literal("You cannot teleport to yourself!").withStyle(ChatFormatting.RED),
+                                        false
+                                );
+                                return 0;
+                            }
+
+                            sendTeleportRequest(sender, target, true);
+                            return 1;
+                        })
+                )
+        );
+
+        dispatcher.register(Commands.literal("tpcancel")
+                .requires(PERMISSIONS_NORMAL)
+                .executes(context -> {
+                    ServerPlayer sender = getPlayer(context.getSource());
+                    cancelTeleportRequest(sender);
                     return 1;
                 })
-            )
         );
 
-        dispatcher.register(CommandManager.literal("tpdeny")
-            .requires(PERMISSIONS_NORMAL)
-            .executes(context -> {
-                ServerPlayerEntity receiver = getPlayer(context.getSource());
-                denyTeleportRequest(receiver, null);
-                return 1;
-            })
-            .then(CommandManager.argument("sender", EntityArgumentType.player())
-                .suggests(suggestPlayers())
+        dispatcher.register(Commands.literal("tpaccept")
+                .requires(PERMISSIONS_NORMAL)
                 .executes(context -> {
-                    ServerPlayerEntity receiver = getPlayer(context.getSource());
-                    ServerPlayerEntity sender = EntityArgumentType.getPlayer(context, "sender");
-                    denyTeleportRequest(receiver, sender);
+                    ServerPlayer receiver = getPlayer(context.getSource());
+                    acceptTeleportRequest(receiver, null);
                     return 1;
                 })
-            )
+                .then(Commands.argument("sender", EntityArgument.player())
+                        .suggests(suggestPlayers())
+                        .executes(context -> {
+                            ServerPlayer receiver = getPlayer(context.getSource());
+                            ServerPlayer sender = EntityArgument.getPlayer(context, "sender");
+                            acceptTeleportRequest(receiver, sender);
+                            return 1;
+                        })
+                )
+        );
+
+        dispatcher.register(Commands.literal("tpdeny")
+                .requires(PERMISSIONS_NORMAL)
+                .executes(context -> {
+                    ServerPlayer receiver = getPlayer(context.getSource());
+                    denyTeleportRequest(receiver, null);
+                    return 1;
+                })
+                .then(Commands.argument("sender", EntityArgument.player())
+                        .suggests(suggestPlayers())
+                        .executes(context -> {
+                            ServerPlayer receiver = getPlayer(context.getSource());
+                            ServerPlayer sender = EntityArgument.getPlayer(context, "sender");
+                            denyTeleportRequest(receiver, sender);
+                            return 1;
+                        })
+                )
         );
     }
 
     // ------ INITIALIZE ----------------------------------------------------------------------------------
-
     @Override
     public void onInitialize() {
         CommandRegistrationCallback.EVENT.register(
-            (dispatcher, registryAccess, environment) -> registerCommands(dispatcher)
+                (dispatcher, registryAccess, environment) -> registerCommands(dispatcher)
         );
 
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, cause) -> {
-            if (entity instanceof ServerPlayerEntity player) {
-                setWarp("back", player, player.getUuid());
+            if (entity instanceof ServerPlayer player) {
+                setWarp("back", player, player.getUUID());
             }
         });
 
