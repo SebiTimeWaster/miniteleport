@@ -66,7 +66,7 @@ public class MiniTeleport implements ModInitializer {
 
     static final long REQUEST_TIMEOUT_MS = 60_000; // 60 seconds
 
-    record Warp(String name, int x, int y, int z, String dimension) {
+    record Warp(String name, int x, int y, int z, Float yaw, Float pitch, String dimension) {
 
     }
 
@@ -142,8 +142,15 @@ public class MiniTeleport implements ModInitializer {
         MinecraftServer server = player.level().getServer();
         ArrayList<Warp> warps = new ArrayList<>(List.of(getWarps(getFile(server, uuid))));
         String dimension = player.level().dimension().identifier().toString();
-        Warp warp = new Warp(name, (int) Math.floor(player.getX()), (int) Math.ceil(player.getY()),
-                (int) Math.floor(player.getZ()), dimension);
+        Warp warp = new Warp(
+                name,
+                (int) Math.floor(player.getX()),
+                (int) Math.ceil(player.getY()),
+                (int) Math.floor(player.getZ()),
+                (Float) player.getYRot(),
+                (Float) player.getXRot(),
+                dimension
+        );
 
         boolean warpExists = false;
         for (int i = 0; i < warps.size(); i++) {
@@ -224,8 +231,16 @@ public class MiniTeleport implements ModInitializer {
 
         setWarp("back", player, player.getUUID());
 
-        player.teleportTo(world, warp.x() + 0.5, warp.y() + 0.1, warp.z() + 0.5, EnumSet.noneOf(Relative.class),
-                player.getYRot(), player.getXRot(), true);
+        player.teleportTo(
+                world,
+                warp.x() + 0.5,
+                warp.y() + 0.05,
+                warp.z() + 0.5,
+                EnumSet.noneOf(Relative.class),
+                warp.yaw() != null ? (float) warp.yaw() : player.getYRot(),
+                warp.pitch() != null ? (float) warp.pitch() : player.getXRot(),
+                true
+        );
 
         doTeleportEffect(world, player);
 
@@ -360,14 +375,26 @@ public class MiniTeleport implements ModInitializer {
         }
 
         if (request.here()) {
-            warpPlayer(receiver,
-                    new Warp(actualSender.getName().getString(), (int) actualSender.getX(), (int) actualSender.getY(),
-                            (int) actualSender.getZ(), actualSender.level().dimension().identifier().toString()));
+            warpPlayer(receiver, new Warp(
+                    actualSender.getName().getString(),
+                    (int) actualSender.getX(),
+                    (int) actualSender.getY(),
+                    (int) actualSender.getZ(),
+                    (Float) actualSender.getYRot(),
+                    (Float) actualSender.getXRot(),
+                    actualSender.level().dimension().identifier().toString()
+            ));
             actualSender.sendSystemMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA));
         } else {
-            warpPlayer(actualSender,
-                    new Warp(receiver.getName().getString(), (int) receiver.getX(), (int) receiver.getY(),
-                            (int) receiver.getZ(), receiver.level().dimension().identifier().toString()));
+            warpPlayer(actualSender, new Warp(
+                    receiver.getName().getString(),
+                    (int) receiver.getX(),
+                    (int) receiver.getY(),
+                    (int) receiver.getZ(),
+                    (Float) receiver.getYRot(),
+                    (Float) receiver.getXRot(),
+                    receiver.level().dimension().identifier().toString()
+            ));
             receiver.sendSystemMessage(Component.literal("Teleport request accepted!").withStyle(ChatFormatting.AQUA));
         }
 
