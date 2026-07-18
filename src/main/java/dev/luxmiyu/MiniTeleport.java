@@ -142,7 +142,7 @@ public class MiniTeleport implements ModInitializer {
         MinecraftServer server = player.level().getServer();
         ArrayList<Warp> warps = new ArrayList<>(List.of(getWarps(getFile(server, uuid))));
         String dimension = player.level().dimension().identifier().toString();
-        Warp warp = new Warp(name, (int) Math.floor(player.getX()), (int) Math.floor(player.getY()),
+        Warp warp = new Warp(name, (int) Math.floor(player.getX()), (int) Math.ceil(player.getY()),
                 (int) Math.floor(player.getZ()), dimension);
 
         boolean warpExists = false;
