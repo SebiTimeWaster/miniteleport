@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
@@ -248,6 +249,7 @@ public class MiniTeleport implements ModInitializer {
 
     Component listWarps(MinecraftServer server, @Nullable UUID uuid) {
         Warp[] warps = getWarps(getFile(server, uuid));
+        Arrays.sort(warps, Comparator.comparing(Warp::name));
 
         if (warps.length == 0) {
             return Component.literal(uuid == null ? "There are no warps." : "You have no homes.").withStyle(ChatFormatting.RED);
