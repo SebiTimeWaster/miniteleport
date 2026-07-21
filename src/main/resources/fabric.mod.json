@@ -10,7 +10,7 @@
     "icon": "assets/miniteleport/icon.png",
     "environment": "*",
     "entrypoints": {
-        "main": ["dev.luxmiyu.MiniTeleport"]
+        "main": ["dev.luxmiyu.miniteleport.MiniTeleport"]
     },
     "depends": {
         "fabricloader": ">=0.19.3",
