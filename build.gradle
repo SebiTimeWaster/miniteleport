@@ -24,12 +24,18 @@ dependencies {
 }
 
 processResources {
-	def version = project.version
-	inputs.property "version", version
+    def expandProps = [
+        "version": project.version,
+        "java_version": project.java_version,
+        "minecraft_version": project.minecraft_version,
+        "loader_version": project.loader_version
+    ]
 
-	filesMatching("fabric.mod.json") {
-		expand "version": version
-	}
+    inputs.properties(expandProps)
+
+    filesMatching("fabric.mod.json") {
+        expand(expandProps)
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
