@@ -1,14 +1,12 @@
 package timewaster.publicteleport.commands;
 
 import java.util.List;
-import java.util.function.Predicate;
 
 import com.mojang.brigadier.CommandDispatcher;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.Permissions;
 import timewaster.publicteleport.Messages;
 import timewaster.publicteleport.PublicTeleport;
 import timewaster.publicteleport.Registrar;
@@ -20,13 +18,11 @@ import timewaster.publicteleport.records.Teleport;
  * Defines all Warp commands, registered by {@link Registrar}.
  */
 public class Warps {
-    private static final Predicate<CommandSourceStack> PERMISSIONS_OWNER = source -> source.permissions()
-        .hasPermission(Permissions.COMMANDS_OWNER);
     private static final Registrar.SuggestionType typeNone = Registrar.SuggestionType.NONE;
     private static final Registrar.SuggestionType typeWarps = Registrar.SuggestionType.WARPS;
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(Commands.literal("setwarp").requires(PERMISSIONS_OWNER)
+        dispatcher.register(Commands.literal("setwarp").requires(Commands.hasPermission(Commands.LEVEL_OWNERS))
             .then(Registrar.buildArgumentString("name", typeNone, (ServerPlayer player, String argValue) -> {
                 if (argValue.equals("spawn")) {
                     if (PublicTeleport.storage.getConfig().enableSpawn()) {
@@ -56,7 +52,7 @@ public class Warps {
                 return true;
             })));
 
-        dispatcher.register(Commands.literal("delwarp").requires(PERMISSIONS_OWNER)
+        dispatcher.register(Commands.literal("delwarp").requires(Commands.hasPermission(Commands.LEVEL_OWNERS))
             .then(Registrar.buildArgumentString("name", typeWarps, (ServerPlayer player, String argValue) -> {
                 if (argValue.equals("spawn")) {
                     Messages.sendMessage(player, "warp_no_exist", Messages.MessageType.ERROR, "spawn");

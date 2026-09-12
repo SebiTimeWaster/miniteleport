@@ -1,6 +1,7 @@
 package timewaster.publicteleport;
 
 import java.lang.management.ManagementFactory;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -27,10 +28,12 @@ import net.minecraft.server.level.ServerPlayer;
 import timewaster.publicteleport.commands.Back;
 import timewaster.publicteleport.commands.Help;
 import timewaster.publicteleport.commands.Homes;
+import timewaster.publicteleport.commands.Portals;
 import timewaster.publicteleport.commands.Spawn;
 import timewaster.publicteleport.commands.Tpa;
 import timewaster.publicteleport.commands.Warps;
 import timewaster.publicteleport.records.Config;
+import timewaster.publicteleport.records.Portal;
 
 /**
  * Registers the mod's Brigadier commands and provides shared helpers used by
@@ -38,7 +41,7 @@ import timewaster.publicteleport.records.Config;
  */
 public class Registrar {
     public static enum SuggestionType {
-        NONE, HOMES, WARPS, PLAYERS
+        HOMES, NONE, PLAYERS, PORTALS, WARPS
     }
 
     private static ServerPlayer getPlayer(CommandContext<CommandSourceStack> context) {
@@ -68,6 +71,16 @@ public class Registrar {
                     }
                 }
             }
+
+            if (type == SuggestionType.PORTALS) {
+                List<Portal> portals = PublicTeleport.storage.getPortals();
+
+                portals.sort(Comparator.comparing(portal -> portal.target().name()));
+
+                for (Portal portal : portals) {
+                    builder.suggest(portal.target().name());
+                }
+            }
         }
 
         return builder.buildFuture();
@@ -79,7 +92,7 @@ public class Registrar {
      * coresponding JVM argument "PuppetMaster" is set.
      * I.e.: "java -Xmx2G -DPuppetMaster=1 -jar server.jar nogui"
      */
-    private static void puppets(CommandDispatcher<CommandSourceStack> dispatcher) {
+    private static void registerPuppets(CommandDispatcher<CommandSourceStack> dispatcher) {
         List<String> args = ManagementFactory.getRuntimeMXBean().getInputArguments();
 
         if (args.contains("-DPuppetMaster=1")) {
@@ -94,6 +107,23 @@ public class Registrar {
 
                     return true;
                 })));
+
+            dispatcher.register(Commands.literal("movepuppets")
+                .then(Registrar.buildArgumentString("position", SuggestionType.NONE,
+                    (ServerPlayer player, String argValue) -> {
+                        String[] parts = argValue.split("p");
+
+                        for (ServerPlayer onePlayer : player.level().getServer().getPlayerList().getPlayers()) {
+                            if (onePlayer.getClass().toString().contains("PuppetPlayer")) {
+                                player.level().getServer().getCommands().performPrefixedCommand(
+                                    player.createCommandSourceStack(), "/puppet " + onePlayer.getName().getString()
+                                        + " actions run minecraft:move_to position " + parts[0] + " " + parts[1] + " "
+                                        + parts[2] + " false true");
+                            }
+                        }
+
+                        return true;
+                    })));
         }
     }
 
@@ -104,7 +134,8 @@ public class Registrar {
         Config config = PublicTeleport.storage.getConfig();
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            puppets(dispatcher);
+            registerPuppets(dispatcher);
+
             Help.register(dispatcher, config);
 
             if (config.enableSpawn()) {
@@ -121,6 +152,10 @@ public class Registrar {
 
             if (config.enableBack()) {
                 Back.register(dispatcher);
+            }
+
+            if (config.enablePortals()) {
+                Portals.register(dispatcher);
             }
 
             if (config.enableTpa() && FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER) {

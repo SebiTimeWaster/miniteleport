@@ -7,7 +7,6 @@ import java.util.UUID;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -17,7 +16,6 @@ import net.minecraft.server.level.ServerPlayer;
  */
 public class Requests {
     private static final List<Request> pendingRequests = new ArrayList<Request>();
-    private static int tickCounter = 0;
 
     public static enum RequestType {
         NORMAL, REVERSE, REVERSE_ALL
@@ -49,28 +47,6 @@ public class Requests {
         return otherPlayer.level().getServer().getPlayerList().getPlayer(playerToGet);
     }
 
-    private static void cleanup(MinecraftServer server) {
-        long now = System.currentTimeMillis();
-
-        for (Request request : pendingRequests) {
-            ServerPlayer sender = server.getPlayerList().getPlayer(request.sender());
-            ServerPlayer receiver = server.getPlayerList().getPlayer(request.receiver());
-
-            if (request.expires() <= now) {
-                if (sender != null) {
-                    Messages.sendMessage(sender, "request_timedout_sender", Messages.MessageType.WARNING,
-                        request.receiverName());
-                }
-                if (receiver != null) {
-                    Messages.sendMessage(receiver, "request_timedout_receiver", Messages.MessageType.WARNING,
-                        request.senderName());
-                }
-            }
-        }
-
-        pendingRequests.removeIf(request -> request.expires() <= now);
-    }
-
     private static void createRequest(ServerPlayer sender, ServerPlayer receiver, RequestType requestType) {
         long expires = System.currentTimeMillis() + PublicTeleport.storage.getConfig().requestTimeout() * 1000;
         String senderName = sender.getName().getString();
@@ -94,32 +70,39 @@ public class Requests {
     }
 
     /**
-     * Registers a periodic server-tick listener that removes stale pending TPA
-     * requests.
+     * Checks for stale requests and cleans them up once per second.
+     *
+     * @param server the server object to get involved players
      */
-    public static void registerTickEvent() {
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
-            tickCounter++;
+    public static void cleanup(MinecraftServer server) {
+        long now = System.currentTimeMillis();
 
-            // 20 ticks = 1 second
-            if (tickCounter >= 20) {
-                tickCounter = 0;
+        for (Request request : pendingRequests) {
+            if (request.expires() <= now) {
+                ServerPlayer sender = server.getPlayerList().getPlayer(request.sender());
+                ServerPlayer receiver = server.getPlayerList().getPlayer(request.receiver());
 
-                cleanup(server);
+                if (sender != null) {
+                    Messages.sendMessage(sender, "request_timedout_sender", Messages.MessageType.WARNING,
+                        request.receiverName());
+                }
+                if (receiver != null) {
+                    Messages.sendMessage(receiver, "request_timedout_receiver", Messages.MessageType.WARNING,
+                        request.senderName());
+                }
             }
-        });
+        }
+
+        pendingRequests.removeIf(request -> request.expires() <= now);
     }
 
     /**
      * Sends a TPA request from one player to another, notifying both players.
      *
-     * @param sender   the player initiating the request
-     * @param receiver the player being asked to accept or deny the request or
-     *                     {@code null} if {@link RequestType.REVERSE_ALL}
-     * @param reverse  if {@code true}, the {@link receiver} is teleported to the
-     *                     {@link sender} instead of the normal direction
-     * @param all      if {@code true} all online players are asked to teleport to
-     *                     the sender
+     * @param sender      the player initiating the request
+     * @param receiver    the player being asked to accept or deny the request or
+     *                        {@code null} if {@link RequestType.REVERSE_ALL}
+     * @param requestType what type of request is being made
      * @return {@code true} if the request was created and sent
      */
     public static boolean sendRequest(ServerPlayer sender, @Nullable ServerPlayer receiver, RequestType requestType) {

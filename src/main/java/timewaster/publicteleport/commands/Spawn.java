@@ -1,13 +1,10 @@
 package timewaster.publicteleport.commands;
 
-import java.util.function.Predicate;
-
 import com.mojang.brigadier.CommandDispatcher;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.Permissions;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelData.RespawnData;
 import timewaster.publicteleport.Messages;
@@ -21,11 +18,8 @@ import timewaster.publicteleport.records.Teleport;
  * Defines all Spawn commands, registered by {@link Registrar}.
  */
 public class Spawn {
-    private static final Predicate<CommandSourceStack> PERMISSIONS_OWNER = source -> source.permissions()
-        .hasPermission(Permissions.COMMANDS_OWNER);
-
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(Commands.literal("setspawn").requires(PERMISSIONS_OWNER)
+        dispatcher.register(Commands.literal("setspawn").requires(Commands.hasPermission(Commands.LEVEL_OWNERS))
             .executes(context -> Registrar.contextWrapper(context, (ServerPlayer player) -> {
                 Teleport target = Teleport.create(player, "spawn");
 

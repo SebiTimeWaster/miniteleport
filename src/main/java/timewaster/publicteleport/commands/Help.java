@@ -13,24 +13,32 @@ import timewaster.publicteleport.Registrar;
 import timewaster.publicteleport.records.Config;
 
 /**
- * Defines the Back command, registered by {@link Registrar}.
+ * Defines the Help command, registered by {@link Registrar}.
  */
 public class Help {
-    private static void createHelpLine(Messages.MessageBuilder message, String identifier) {
-        String[] hasParamName = { "setwarp", "delwarp", "warp", "sethome", "delhome", "home" };
+    private static void createHelpLine(Messages.MessageBuilder message, String command, String identifier,
+        String params) {
+        String[] hasParamName = { "setwarp", "delwarp", "warp", "sethome", "delhome", "home", "setportal",
+                "delportal" };
         String[] hasParamPlayer = { "tpa", "tpahere", "tpaccept", "tpdeny" };
 
-        message.appendRawColored("\n  /" + identifier, Messages.MessageType.COMMAND);
+        message.appendRawColored("\n  /" + command, Messages.MessageType.COMMAND);
 
-        if (ArrayUtils.contains(hasParamName, identifier)) {
+        if (ArrayUtils.contains(hasParamName, command)) {
             message.appendRaw(" ").append("command_param_name", Messages.MessageType.COMMAND_PARAM);
         }
-
-        if (ArrayUtils.contains(hasParamPlayer, identifier)) {
+        if (ArrayUtils.contains(hasParamPlayer, command)) {
             message.appendRaw(" ").append("command_param_player", Messages.MessageType.COMMAND_PARAM);
         }
+        if (!params.equals("")) {
+            message.appendRaw(" ").appendRawColored(params, Messages.MessageType.COMMAND_PARAM);
+        }
 
-        message.appendRaw("  ").append("help_" + identifier, null);
+        message.appendRaw("\n    ").append("help_" + identifier, null);
+    }
+
+    private static void createHelpLine(Messages.MessageBuilder message, String identifier) {
+        createHelpLine(message, identifier, identifier, "");
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, Config config) {
@@ -70,6 +78,16 @@ public class Help {
                 if (config.enableBack()) {
                     message.appendRawColored("\n Back:", Messages.MessageType.HEADLINE);
                     createHelpLine(message, "back");
+                }
+
+                if (config.enablePortals() && (!config.portalCommandsOnlyOp() || isOwner)) {
+                    message.appendRawColored("\n Portals:", Messages.MessageType.HEADLINE);
+                    createHelpLine(message, "setportal", "setportal_from", "from");
+                    createHelpLine(message, "setportal", "setportal_to", "to");
+                    createHelpLine(message, "setportal", "setportal_target", "target");
+                    createHelpLine(message, "setportal", "setportal_target_url", "target \"<domain/ip>:<port>\"");
+                    createHelpLine(message, "delportal");
+                    createHelpLine(message, "portals");
                 }
 
                 if (config.enableTpa()) {

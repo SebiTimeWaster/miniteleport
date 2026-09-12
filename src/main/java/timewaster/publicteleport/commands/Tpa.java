@@ -1,13 +1,10 @@
 package timewaster.publicteleport.commands;
 
-import java.util.function.Predicate;
-
 import com.mojang.brigadier.CommandDispatcher;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.Permissions;
 import timewaster.publicteleport.Registrar;
 import timewaster.publicteleport.Requests;
 import timewaster.publicteleport.Requests.RequestType;
@@ -16,8 +13,6 @@ import timewaster.publicteleport.Requests.RequestType;
  * Defines all TPA commands, registered by {@link Registrar}.
  */
 public class Tpa {
-    private static final Predicate<CommandSourceStack> PERMISSIONS_OWNER = source -> source.permissions()
-        .hasPermission(Permissions.COMMANDS_OWNER);
     private static final Registrar.SuggestionType typePlayers = Registrar.SuggestionType.PLAYERS;
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -31,7 +26,7 @@ public class Tpa {
                 return Requests.sendRequest(player, target, RequestType.REVERSE);
             })));
 
-        dispatcher.register(Commands.literal("tpahereall").requires(PERMISSIONS_OWNER)
+        dispatcher.register(Commands.literal("tpahereall").requires(Commands.hasPermission(Commands.LEVEL_OWNERS))
             .executes(context -> Registrar.contextWrapper(context, (ServerPlayer player) -> {
                 return Requests.sendRequest(player, null, RequestType.REVERSE_ALL);
             })));

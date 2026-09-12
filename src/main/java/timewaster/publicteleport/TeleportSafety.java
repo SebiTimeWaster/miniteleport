@@ -109,8 +109,8 @@ public class TeleportSafety {
     /**
      * Checks if a specified {@link BlockPos} is a valid teleport target.
      *
-     * @param level    the level the blockPos is in
-     * @param blockPos the position to check
+     * @param player the player to be teleported
+     * @param target the position to check
      * @return {@code true} is position is clear to use
      */
     public static boolean isBlockTeleportable(ServerPlayer player, Teleport target) {
@@ -125,8 +125,10 @@ public class TeleportSafety {
      * {@link target} position is a valid teleport target and if no other player is
      * currently blocking it.
      *
-     * @param player the player to be teleported
-     * @param target the target position to check
+     * @param player        the player to be teleported
+     * @param target        the position to check
+     * @param ignorePlayers if block checks around the target block should ignore
+     *                          players blocking them to make sure /tpahereall works
      * @return {@link Teleport} the position that is teleportable to or {@code null}
      *         is none was found
      */
@@ -171,7 +173,7 @@ public class TeleportSafety {
      * specified clearances
      *
      * @param player      the player whos position to check
-     * @param target      the target whos position to check
+     * @param target      the position to check
      * @param clearanceXZ the minimum clearance in the X and Z directions needed
      * @param clearanceY  the minimum clearance in the Y direction needed
      * @return

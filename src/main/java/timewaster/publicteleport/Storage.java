@@ -23,7 +23,9 @@ import org.jetbrains.annotations.Nullable;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonIOException;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 
@@ -31,32 +33,37 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.server.level.ServerPlayer;
 import timewaster.publicteleport.records.Config;
+import timewaster.publicteleport.records.Portal;
 import timewaster.publicteleport.records.Teleport;
 
 /**
  * Loads and saves data in multiple files in the config directory
  */
 public class Storage {
-    private static final Config configDefault = new Config("en_us", 10, 60, true, true, true, true, true);
+    private static final Config configDefault = new Config("en_us", true, true, true, true, true, true, 10, 60, true);
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private final Path pathConfig;
     private final Path pathConfigHomes;
     private final File fileConfig;
     private final File fileWarps;
+    private final File filePortals;
     private final Config config;
     private final Map<String, String> translations;
     private List<Teleport> warps;
     private Map<UUID, List<Teleport>> homes = new HashMap<UUID, List<Teleport>>();
+    private List<Portal> portals;
 
     public Storage() {
         this.pathConfig = FabricLoader.getInstance().getConfigDir().resolve(PublicTeleport.MOD_ID);
         this.pathConfigHomes = pathConfig.resolve("homes");
         this.fileConfig = pathConfig.resolve("config.json").toFile();
         this.fileWarps = pathConfig.resolve("warps.json").toFile();
+        this.filePortals = pathConfig.resolve("portals.json").toFile();
         createDirectories();
         this.config = loadConfig();
         this.translations = loadTranslations();
-        this.warps = loadFile(fileWarps, true);
+        this.warps = loadFile(fileWarps, Teleport.class, true);
+        this.portals = loadFile(filePortals, Portal.class, true);
     }
 
     private void createDirectories() {
@@ -86,18 +93,21 @@ public class Storage {
                 }
             }
 
-            @SuppressWarnings("null")
-            Config mergedConfig = GSON.fromJson(fileObj, Config.class);
+            TypeToken<Config> configType = new TypeToken<Config>() {
+            };
+
+            Config mergedConfig = GSON.fromJson(fileObj, configType);
 
             if (changed) {
                 saveFile(fileConfig, mergedConfig, true);
             }
 
             return mergedConfig;
-        } catch (IOException e) {
+        } catch (IOException | JsonParseException e) {
             PublicTeleport.LOGGER.error(PublicTeleport.prefix("Failed to load config from: {}"),
                 fileConfig.toPath().toString());
-            throw new UncheckedIOException(e);
+
+            throw new RuntimeException(e);
         }
     }
 
@@ -126,15 +136,16 @@ public class Storage {
             };
 
             return GSON.fromJson(reader, mapType);
-        } catch (IOException e) {
-            PublicTeleport.LOGGER.error(PublicTeleport.prefix("Failed to load language file from: {}"),
+        } catch (IOException | JsonParseException e) {
+            PublicTeleport.LOGGER.error(PublicTeleport.prefix("Failed to load language from: {}"),
                 languagePath.toString());
-            throw new UncheckedIOException(e);
+
+            throw new RuntimeException(e);
         }
     }
 
-    private @Nullable List<Teleport> loadFile(File file, boolean failOnError) {
-        List<Teleport> defaultValue = new ArrayList<Teleport>();
+    private <T> List<T> loadFile(File file, Class<T> elementType, boolean failOnError) {
+        List<T> defaultValue = new ArrayList<T>();
 
         if (!file.exists()) {
             saveFile(file, defaultValue, failOnError);
@@ -142,19 +153,18 @@ public class Storage {
         }
 
         try (BufferedReader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
-            Type listType = new TypeToken<List<Teleport>>() {
-            }.getType();
+            Type listType = TypeToken.getParameterized(List.class, elementType).getType();
 
             return GSON.fromJson(reader, listType);
-        } catch (IOException e) {
+        } catch (IOException | JsonParseException e) {
             PublicTeleport.LOGGER.error(PublicTeleport.prefix("Failed to load data from: {}"),
                 file.toPath().toString());
 
             if (failOnError) {
-                throw new UncheckedIOException(e);
-            } else {
-                return null;
+                throw new RuntimeException(e);
             }
+
+            return null;
         }
     }
 
@@ -169,14 +179,14 @@ public class Storage {
             }
 
             Files.move(tempPath, file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException e) {
+        } catch (IOException | JsonIOException e) {
             PublicTeleport.LOGGER.error(PublicTeleport.prefix("Failed to save data to: {}"), file.toPath().toString());
 
             if (failOnError) {
-                throw new UncheckedIOException(e);
-            } else {
-                return false;
+                throw new RuntimeException(e);
             }
+
+            return false;
         }
 
         return true;
@@ -186,16 +196,14 @@ public class Storage {
         return pathConfigHomes.resolve(uuid + ".json").toFile();
     }
 
-    @Nullable
     private List<Teleport> loadTeleports(@Nullable UUID uuid) {
-        @Nullable
         List<Teleport> teleports;
 
         if (uuid != null) {
             teleports = homes.get(uuid);
 
             if (teleports == null) {
-                teleports = loadFile(getHomeFileByUuid(uuid), false);
+                teleports = loadFile(getHomeFileByUuid(uuid), Teleport.class, false);
 
                 if (teleports != null) {
                     homes.put(uuid, teleports);
@@ -337,6 +345,7 @@ public class Storage {
      * @return if the teleport was found and deleted: {@code true}; if the teleport
      *         was not found: {@code false}; if a file error occured: {@code null}
      */
+    @Nullable
     public Boolean deleteTeleport(ServerPlayer player, String name, boolean isWarp) {
         UUID uuid = player.getUUID();
         List<Teleport> teleports = loadTeleports(isWarp ? null : uuid);
@@ -366,11 +375,75 @@ public class Storage {
         return false;
     }
 
+    /**
+     * Creates or updates a portal with the given name and persists the change.
+     *
+     * @param player    the player trying to save the data
+     * @param newPortal the {@link Portal} to add or update
+     * @return {@code true} if successful, {@code false} on file error
+     */
+    public boolean setPortal(ServerPlayer player, Portal newPortal) {
+        boolean exists = false;
+
+        for (int i = 0; i < portals.size(); i++) {
+            if (portals.get(i).target().name().equals(newPortal.target().name())) {
+                portals.set(i, newPortal);
+                exists = true;
+            }
+        }
+
+        if (!exists) {
+            portals.add(newPortal);
+        }
+
+        if (!saveFile(filePortals, portals, false)) {
+            Messages.sendMessage(player, "data_not_saved", Messages.MessageType.ERROR);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Deletes a portal with the given name if it exists and persists the change.
+     *
+     * @param player the player trying to delete the data
+     * @param name   the exact name of the portal to delete
+     * @return {@code true} if the teleport was found and deleted, {@code null} if a
+     *         file error occured
+     */
+    @Nullable
+    public Boolean deletePortal(ServerPlayer player, String name) {
+        boolean exists = false;
+
+        for (int i = 0; i < portals.size(); i++) {
+            if (portals.get(i).target().name().equals(name)) {
+                portals.remove(i);
+                exists = true;
+            }
+        }
+
+        if (exists) {
+            if (!saveFile(filePortals, portals, false)) {
+                Messages.sendMessage(player, "data_not_saved", Messages.MessageType.ERROR);
+                return null;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     public Config getConfig() {
         return config;
     }
 
     public Map<String, String> getTranslations() {
         return translations;
+    }
+
+    public List<Portal> getPortals() {
+        return portals;
     }
 }

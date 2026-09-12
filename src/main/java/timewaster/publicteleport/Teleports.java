@@ -121,10 +121,25 @@ public class Teleports {
     }
 
     /**
-     * Teleports the player to an already-resolved TPA destination.
+     * Teleports the player to an already-resolved {@link Teleport} destination.
      *
-     * @param player the player to teleport
-     * @param target the destination to teleport the player to
+     * @param player         the player to teleport
+     * @param teleportTarget the destination to teleport the player to
+     * @return {@code true} if the teleport succeeded
+     */
+    public static boolean teleportPlayer(ServerPlayer player, Teleport teleportTarget) {
+        ServerLevel level = TeleportSafety.getLevelFromDimension(player, teleportTarget.dimension());
+        Teleport testedTarget = teleportPreflightCheck(player, null, teleportTarget, level, false);
+
+        return teleport(player, testedTarget, level);
+    }
+
+    /**
+     * Teleports the player to another player (TPA destination).
+     *
+     * @param player       the player to teleport
+     * @param targetPlayer the destination to teleport the player to
+     * @param isTpaHereAll if it is a /tpahereall command usage
      * @return {@code true} if the teleport succeeded
      */
     public static boolean teleportPlayer(ServerPlayer player, ServerPlayer targetPlayer, boolean isTpaHereAll) {
@@ -170,9 +185,9 @@ public class Teleports {
      * Looks up a named teleport destination (a home or a warp) and teleports
      * the player to it if found.
      *
-     * @param player             the player to teleport
-     * @param originalTargetName the name of the home or warp to teleport to
-     * @param isWarp             {@code true} if the teleport is a Warp, not a Home
+     * @param player     the player to teleport
+     * @param targetName the name of the home or warp to teleport to
+     * @param isWarp     {@code true} if the teleport is a Warp, not a Home
      * @return {@code true} if the destination was found and the teleport succeeded
      */
     public static boolean teleportPlayer(ServerPlayer player, String targetName, boolean isWarp) {
